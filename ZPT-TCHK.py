@@ -249,15 +249,8 @@ class FileProcessor:
             count_w: Счетчик панелей не прошедших проверку по ширине.
         """
         try:
-            # Безопасный парсинг XML без возможности XXE атак
-            # Поддержка разных версий lxml: no_network доступен начиная с 4.9.0
-            try:
-                parser = ET.XMLParser(no_network=True, resolve_entities=False)
-            except TypeError:
-                # Для старых версий lxml используем безопасные настройки по умолчанию
-                parser = ET.XMLParser(resolve_entities=False)
-            
-            tree = ET.parse(f_path, parser=parser)
+            # Парсинг XML
+            tree = ET.parse(f_path)
             root = tree.getroot()
             
             swith = 0
