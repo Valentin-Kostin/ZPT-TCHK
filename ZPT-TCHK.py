@@ -1,152 +1,368 @@
-from tkinter import *
-from tkinter import filedialog
-from tkinter import scrolledtext
-from tkinter import ttk
-from tkinter import font
+"""
+LITIUM - Утилита для обработки файлов мебельного производства.
+
+Модуль предоставляет GUI-интерфейс для:
+- Проверки и исправления пазов в файлах .SCX
+- Замены запятых на точки в файлах .SCX
+- Подсчета деталей и сравнения файлов .csv и .pgmx
+"""
+
 import os
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Optional, Dict, Set, Tuple, List
+import tkinter as tk
+from tkinter import filedialog, scrolledtext, ttk, font, messagebox
 
 
-
-def delete():
-    txt.delete(1.0, END)
-
-def select_directory():  
-    directory_path = filedialog.askdirectory(title="Выбрать папку")  
-    return directory_path
-
-def summDet():                              ### Функция подчитывает количество деталей по материалам, 
-    direcFile = select_directory()          ### и сравнивает количетво файлов .pgmx с .csv
-    detalCSV = {}
-    nameDict = {}
-    wor = 0
-    summPGMX = 0
-    keyOBOROT = []
-    keyPusto = []
-    for filename in os.listdir(direcFile):
-        f = os.path.join(direcFile, filename)               # формирует путь к файлу
-        if os.path.isfile(f) and filename.endswith('.csv'): # проверка файла что файл .csv
-            fileRead = open(f, 'r', encoding='utf-8')       # открывает файл
-            contentCSV = fileRead.read()                    # считывает инфу с файла
-            contentCSV = contentCSV[:-1]
-            contentCSVdet = contentCSV.split("\n")
-            summ = 0
-            for detal in contentCSVdet:                     # считает количество деталей в .csv
-                detalSpl = detal.split(";")
-                keys = str(detalSpl[0])
-                values = detalSpl[1]
-                keys = keys[18:]
-                values = values[11:]
-                #print (keys, values)
-                detalCSV[keys] = values                
-                summ += int(values)
-            fileRead.close()
-            filename =str(filename) +' = '+ str(summ) + ' шт.' +'\n'
-            txt.insert(INSERT, str(filename)) 
-            wor += 1
-        elif os.path.isfile(f) and filename.endswith('.pgmx'): # проверка файла что файл .pgmx
-            fName = os.path.basename(f)                         # считает количество деталей в .pgmx
-            nameDict[fName] = 1
-            summPGMX += 1
-    summPGMX ='Всего файлов = '+ str(summPGMX) + ' шт.' +'\n\n'
-    txt.insert(INSERT, str(summPGMX)) 
+class FileProcessor:
+    """Класс для обработки файлов различных форматов."""
     
-    if detalCSV.keys() == nameDict.keys():              # сравнивает список из .csv со списком .pgmx 
-        txt.insert(INSERT, 'Все файлы есть. Оборотов нет!\n\n\n')
-    else:
-        a = detalCSV.keys() ^ nameDict.keys()
-        countA = 0
-        for key in a:
-            if 'OBOROT'in key :                
-                keyOBOROT.append(key)                
+    # Константы для проверки ширины панелей
+    MAX_PANEL_WIDTH = 1200.0
+    
+    # Константы для исправления параметров SCX
+    TARGET_DIAMETER = '12.222'
+    TARGET_WIDTH_OLD = '12.6'
+    TARGET_WIDTH_NEW = '12,6'
+    
+    def __init__(self, text_widget: scrolledtext.ScrolledText):
+        """
+        Инициализация процессора файлов.
+        
+        Args:
+            text_widget: Виджет Text для вывода результатов.
+        """
+        self.text_widget = text_widget
+    
+    def _insert_text(self, text: str) -> None:
+        """Вставка текста в виджет вывода."""
+        self.text_widget.insert(tk.INSERT, text)
+    
+    def select_directory(self) -> Optional[str]:
+        """
+        Открытие диалога выбора директории.
+        
+        Returns:
+            Путь к выбранной директории или None если выбор отменен.
+        """
+        directory_path = filedialog.askdirectory(title="Выбрать папку")
+        return directory_path if directory_path else None
+    
+    def count_details(self) -> None:
+        """
+        Подсчет количества деталей по материалам и сравнение файлов .pgmx с .csv.
+        
+        Анализирует CSV файлы для подсчета деталей и сравнивает списки файлов
+        CSV и PGMX для выявления отсутствующих файлов или оборотов.
+        """
+        direc_file = self.select_directory()
+        if not direc_file:
+            return
+        
+        detal_csv: Dict[str, str] = {}
+        name_dict: Dict[str, int] = {}
+        csv_files_count = 0
+        pgmx_files_count = 0
+        oborot_keys: List[str] = []
+        missing_keys: List[str] = []
+        
+        try:
+            for filename in os.listdir(direc_file):
+                f_path = os.path.join(direc_file, filename)
+                
+                if os.path.isfile(f_path) and filename.endswith('.csv'):
+                    self._process_csv_file(f_path, filename, detal_csv, csv_files_count)
+                    csv_files_count += 1
+                    
+                elif os.path.isfile(f_path) and filename.endswith('.pgmx'):
+                    name_dict[filename] = 1
+                    pgmx_files_count += 1
+            
+            self._insert_text(f'Всего файлов = {pgmx_files_count} шт.\n\n')
+            self._compare_file_lists(detal_csv, name_dict, oborot_keys, missing_keys)
+            
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Произошла ошибка при обработке файлов: {str(e)}")
+    
+    def _process_csv_file(self, f_path: str, filename: str, 
+                         detal_csv: Dict[str, str], csv_files_count: int) -> None:
+        """
+        Обработка одного CSV файла.
+        
+        Args:
+            f_path: Полный путь к файлу.
+            filename: Имя файла.
+            detal_csv: Словарь для хранения данных о деталях.
+            csv_files_count: Счетчик обработанных CSV файлов.
+        """
+        try:
+            with open(f_path, 'r', encoding='utf-8') as file_read:
+                content_csv = file_read.read()
+            
+            # Корректная обрезка содержимого (удаляем последний символ если он есть)
+            if content_csv:
+                content_csv = content_csv.rstrip()
+            
+            content_csv_det = content_csv.split("\n")
+            summ = 0
+            
+            for detal in content_csv_det:
+                detal_spl = detal.split(";")
+                if len(detal_spl) >= 2:
+                    keys = str(detal_spl[0])[18:]
+                    values = str(detal_spl[1])[11:]
+                    
+                    try:
+                        detal_csv[keys] = values
+                        summ += int(values)
+                    except ValueError:
+                        continue
+            
+            self._insert_text(f'{filename} = {summ} шт.\n')
+            
+        except Exception as e:
+            messagebox.showwarning("Предупреждение", 
+                                 f"Ошибка при чтении файла {filename}: {str(e)}")
+    
+    def _compare_file_lists(self, detal_csv: Dict[str, str], name_dict: Dict[str, int],
+                           oborot_keys: List[str], missing_keys: List[str]) -> None:
+        """
+        Сравнение списков файлов из CSV и PGMX.
+        
+        Args:
+            detal_csv: Словарь с данными из CSV файлов.
+            name_dict: Словарь с именами PGMX файлов.
+            oborot_keys: Список ключей содержащих 'OBOROT'.
+            missing_keys: Список отсутствующих ключей.
+        """
+        csv_keys = set(detal_csv.keys())
+        pgmx_keys = set(name_dict.keys())
+        
+        if csv_keys == pgmx_keys:
+            self._insert_text('Все файлы есть. Оборотов нет!\n\n\n')
+        else:
+            different_keys = csv_keys.symmetric_difference(pgmx_keys)
+            
+            for key in different_keys:
+                if 'OBOROT' in key:
+                    oborot_keys.append(key)
+                else:
+                    missing_keys.append(key)
+            
+            oborot_keys.sort()
+            missing_keys.sort()
+            
+            for item in oborot_keys:
+                self._insert_text(f'{item}\n')
+            
+            for item in missing_keys:
+                self._insert_text(f'!ФАЙЛА НЕТ -- {item}\n')
+    
+    def replace_commas(self) -> None:
+        """
+        Замена запятых на точки в файлах .SCX.
+        
+        Используется для подготовки файлов сверлильного станка,
+        который не корректно обрабатывает запятые в числовых значениях.
+        """
+        direc_file = self.select_directory()
+        if not direc_file:
+            return
+        
+        scx_files_count = 0
+        
+        try:
+            for filename in os.listdir(direc_file):
+                f_path = os.path.join(direc_file, filename)
+                
+                if os.path.isfile(f_path) and filename.endswith('.SCX'):
+                    self._replace_commas_in_file(f_path)
+                    scx_files_count += 1
+            
+            if scx_files_count > 0:
+                self._insert_text(f'Запятых заменено в {scx_files_count} файлов\n\n')
             else:
-                keyPusto.append(key)
-        keyOBOROT = sorted(keyOBOROT)
-        keyPusto = sorted(keyPusto)
-        for item in keyOBOROT:
-            txt.insert(INSERT, item + '\n')
-        for jitem in keyPusto:
-            txt.insert(INSERT, '!ФАЙЛА НЕТ -- ' + jitem + '\n')
-        countA += 1
-
-def clickedReplace():                       ### Функция меняет в файлах .SCX для сверлилки все запятые на точки, так как станок не читает запятые
-    direcFile = select_directory()
-    countSCX = 1
-    textCli = 0
-    for filename in os.listdir(direcFile):        
-        f = os.path.join(direcFile, filename)                   # формирует путь к файлу        
-        if os.path.isfile(f) and filename.endswith('.SCX'):     # проверка файла что файл .SCX
-            fileR = open(f, 'r', encoding='utf-8')              # открывает файл
-            content = fileR.read()                              # считывает инфу с файла
-            string = str(content)
-            new_string = string.replace(",", ".")                   # меняет запятые на точки
-            fileR.close() 
-            fileW = open(f, 'w', encoding='utf-8')                  # открывает файл для записи инфы
-            fileW.write(new_string)
-            textCli = 'Запятых заменено в ' + str(countSCX) + ' файлов \n\n'
-            countSCX = countSCX + 1
-            fileW.close()
-    txt.insert(INSERT, str(textCli))            
-
-def pravkaSCX():                    ### Функция исправляет ошибки Базиса в файлах .SCX для сверлилки, и ищет панели не проходящие по ширине
-    direcFile = select_directory()
-    count = 1
-    countW = 0
-    textPravkaSCX = 0
-    for filename in os.listdir(direcFile):
-        f = os.path.join(direcFile, filename)                   # формирует путь к файлу
-        if os.path.isfile(f) and filename.endswith('.SCX'):      # проверка файла что файл .SCX
-            tree = ET.parse(f)
-            root = tree.getroot()                                   # открываем файл, а затем получаем корневой элемент дерева XML.
-            #print (os.path.basename(f))
+                self._insert_text('Файлы .SCX не найдены\n\n')
+                
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Произошла ошибка при замене запятых: {str(e)}")
+    
+    def _replace_commas_in_file(self, f_path: str) -> None:
+        """
+        Замена запятых на точки в одном файле.
+        
+        Args:
+            f_path: Полный путь к файлу.
+        """
+        try:
+            with open(f_path, 'r', encoding='utf-8') as file_r:
+                content = file_r.read()
+            
+            new_string = content.replace(",", ".")
+            
+            with open(f_path, 'w', encoding='utf-8') as file_w:
+                file_w.write(new_string)
+                
+        except Exception as e:
+            messagebox.showwarning("Предупреждение", 
+                                 f"Ошибка при обработке файла {os.path.basename(f_path)}: {str(e)}")
+    
+    def fix_scx_errors(self) -> None:
+        """
+        Исправление ошибок Базиса в файлах .SCX и поиск панелей не проходящих по ширине.
+        
+        Функция выполняет:
+        - Исправление диаметров и параметров пазов
+        - Проверку ширины панелей на соответствие ограничениям
+        """
+        direc_file = self.select_directory()
+        if not direc_file:
+            return
+        
+        count = 1
+        count_w = 0
+        
+        try:
+            for filename in os.listdir(direc_file):
+                f_path = os.path.join(direc_file, filename)
+                
+                if os.path.isfile(f_path) and filename.endswith('.SCX'):
+                    self._process_scx_file(f_path, count, count_w)
+                    count += 1
+            
+            if count > 1:
+                self._insert_text(f'Готово {count - 1} файлов\n\n')
+            else:
+                self._insert_text('Файлы .SCX не найдены\n\n')
+                
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Произошла ошибка при исправлении SCX: {str(e)}")
+    
+    def _process_scx_file(self, f_path: str, count: int, count_w: int) -> None:
+        """
+        Обработка одного SCX файла.
+        
+        Args:
+            f_path: Полный путь к файлу.
+            count: Счетчик обработанных файлов.
+            count_w: Счетчик панелей не прошедших проверку по ширине.
+        """
+        try:
+            # Безопасный парсинг XML без возможности XXE атак
+            parser = ET.XMLParser(no_network=True, resolve_entities=False)
+            tree = ET.parse(f_path, parser=parser)
+            root = tree.getroot()
+            
             swith = 0
-            for elem in root.findall('.//Machining'):       # ищет все елементы Machining
-                if elem.attrib['Type'] == '1':
-                    if elem.attrib['Diameter'] == '12.222': # проверяет диаметры (находим метку)
-                        fase = elem.attrib['Face']          # считываем нужные параметры с метки
-                        zet = elem.attrib['Z']
-                        elem.clear()                        # удаляем параметры с метки
-                        elem.set('Type', 'None')            # записываем пустые параметры
+            fase = '0'
+            zet = '0'
+            
+            # Обработка элементов Machining
+            for elem in root.findall('.//Machining'):
+                mach_type = elem.attrib.get('Type', '')
+                
+                if mach_type == '1':
+                    if elem.attrib.get('Diameter') == self.TARGET_DIAMETER:
+                        fase = elem.attrib.get('Face', '0')
+                        zet = elem.attrib.get('Z', '0')
+                        elem.clear()
+                        elem.set('Type', 'None')
                         elem.set('Face', '0')
                         swith = 1
-                elif elem.attrib['Type'] == '4':
-                    if elem.attrib['Width'] == '12.6':  # находим паз и записываем в паз нужные параметры
-                        wi = '12,6'
-                        elem.set('Width', wi)
+                        
+                elif mach_type == '4':
+                    if elem.attrib.get('Width') == self.TARGET_WIDTH_OLD:
+                        elem.set('Width', self.TARGET_WIDTH_NEW)
+                    
                     if swith == 1:
                         elem.set('Face', fase)
                         elem.set('Z', zet)
                         elem.set('EndZ', zet)
-            for wid in root.findall('.//Panel'):            # ищет ширину детали, в свойствах (Panel)                
-                if float(wid.attrib['Width']) >= 1200:
-                    fNameW = os.path.basename(f)
-                    fNameW ='деталь ' + str(fNameW) + ' не входит, ширина = ' + wid.attrib['Width'] +'\n'
-                    txt.insert(INSERT, str(fNameW)) 
-                    countW += 1
-                else:
-                    pass
-            textPravkaSCX = 'Готово ' + str(count) + ' файлов \n\n' 
-            count = count + 1
-            tree.write(f, encoding="utf-8", xml_declaration=True)
-    txt.insert(INSERT, str(textPravkaSCX)) 
+            
+            # Проверка ширины панелей
+            for wid in root.findall('.//Panel'):
+                try:
+                    width_value = float(wid.attrib.get('Width', '0'))
+                    if width_value >= self.MAX_PANEL_WIDTH:
+                        fname_w = os.path.basename(f_path)
+                        self._insert_text(
+                            f'деталь {fname_w} не входит, ширина = {wid.attrib.get("Width")}\n'
+                        )
+                        count_w += 1
+                except ValueError:
+                    continue
+            
+            # Сохранение измененного файла
+            tree.write(f_path, encoding="utf-8", xml_declaration=True)
+            
+        except ET.ParseError as e:
+            messagebox.showwarning("Предупреждение", 
+                                 f"Ошибка XML в файле {os.path.basename(f_path)}: {str(e)}")
+        except Exception as e:
+            messagebox.showwarning("Предупреждение", 
+                                 f"Ошибка при обработке файла {os.path.basename(f_path)}: {str(e)}")
 
-window = Tk()
-window.title("LITIUM")
-window.geometry('1800x700')
 
-font1 = font.Font(family= "Arial", size=16, weight="normal", slant="roman")
-frame = ttk.Frame(borderwidth=1, padding=[10, 10])
-frame.pack(side=TOP, fill=X, padx=5, pady=5)
-btn0 = Button(frame, text="1) Проверить и исправить пазы", command=pravkaSCX, font=font1)
-btn0.grid(row=0, column=0)
-btn1 = Button(frame, text="2) Заменить запятые на точки", command=clickedReplace, font=font1)
-btn1.grid(row=0, column=1)
-btn2 = Button(frame, text="3) Подсчитать детали", command=summDet, font=font1)
-btn2.grid(row=0, column=2)
-btn3 = Button(frame, text="4) Очиcтить", command=delete, font=font1)
-btn3.grid(row=0, column=3)
-txt = scrolledtext.ScrolledText(window,width=100,height=50, font=font1)
-txt.pack(fill=BOTH, anchor="center", padx=10, pady=10, expand=True)
+class Application(tk.Tk):
+    """Основное приложение с GUI интерфейсом."""
+    
+    def __init__(self):
+        super().__init__()
+        
+        self.title("LITIUM")
+        self.geometry('1800x700')
+        
+        # Настройка шрифтов
+        self.font_main = font.Font(family="Arial", size=16, weight="normal")
+        
+        # Текстовый виджет будет создан в _create_ui
+        self.txt = None
+        self.file_processor = None
+        
+        self._create_ui()
+    
+    def _create_ui(self) -> None:
+        """Создание пользовательского интерфейса."""
+        # Верхняя панель с кнопками
+        frame = ttk.Frame(borderwidth=1, padding=[10, 10])
+        frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        
+        # Создание текстового виджета до передачи его в процессор
+        self.txt = scrolledtext.ScrolledText(
+            self, width=100, height=50, font=self.font_main
+        )
+        self.txt.pack(fill=tk.BOTH, anchor="center", padx=10, pady=10, expand=True)
+        
+        # Передаем текстовый виджет в процессор
+        self.file_processor = FileProcessor(self.txt)
+        
+        # Кнопки управления
+        buttons_config = [
+            ("1) Проверить и исправить пазы", self.file_processor.fix_scx_errors),
+            ("2) Заменить запятые на точки", self.file_processor.replace_commas),
+            ("3) Подсчитать детали", self.file_processor.count_details),
+            ("4) Очистить", self.clear_text),
+        ]
+        
+        for col, (text, command) in enumerate(buttons_config):
+            btn = tk.Button(frame, text=text, command=command, font=self.font_main)
+            btn.grid(row=0, column=col, padx=5)
+        
+        # Настройка растягивания колонок
+        for col in range(len(buttons_config)):
+            frame.grid_columnconfigure(col, weight=1)
+    
+    def clear_text(self) -> None:
+        """Очистка текстового поля вывода."""
+        self.txt.delete(1.0, tk.END)
 
-window.mainloop()
-# auto-py-to-exe
+
+def main():
+    """Точка входа в приложение."""
+    app = Application()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    main()
