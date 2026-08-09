@@ -351,6 +351,28 @@ class Application(tk.Tk):
         # Настройка растягивания колонок
         for col in range(len(buttons_config)):
             frame.grid_columnconfigure(col, weight=1)
+        
+        # Панель с константами
+        constants_frame = ttk.LabelFrame(self, text="Константы для исправления параметров SCX", padding=[10, 10])
+        constants_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
+        
+        # Отображение констант
+        const_labels = [
+            ("Макс. ширина панели:", f"{FileProcessor.MAX_PANEL_WIDTH} мм"),
+            ("Целевой диаметр:", FileProcessor.TARGET_DIAMETER),
+            ("Старая ширина паза:", FileProcessor.TARGET_WIDTH_OLD),
+            ("Новая ширина паза:", FileProcessor.TARGET_WIDTH_NEW),
+        ]
+        
+        for row, (label_text, value_text) in enumerate(const_labels):
+            lbl_name = ttk.Label(constants_frame, text=label_text, font=self.font_main)
+            lbl_name.grid(row=row, column=0, sticky=tk.W, padx=10, pady=2)
+            
+            lbl_value = ttk.Label(constants_frame, text=value_text, font=self.font_main)
+            lbl_value.grid(row=row, column=1, sticky=tk.W, padx=10, pady=2)
+        
+        constants_frame.grid_columnconfigure(0, weight=1)
+        constants_frame.grid_columnconfigure(1, weight=1)
     
     def clear_text(self) -> None:
         """Очистка текстового поля вывода."""
