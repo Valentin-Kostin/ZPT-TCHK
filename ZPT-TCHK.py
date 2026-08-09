@@ -324,16 +324,15 @@ class Application(tk.Tk):
     def _create_ui(self) -> None:
         """Создание пользовательского интерфейса."""
         # Верхняя панель с кнопками
-        frame = ttk.Frame(borderwidth=1, padding=[10, 10])
+        frame = ttk.Frame(self, borderwidth=1, padding=[10, 10])
         frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         
-        # Создание текстового виджета до передачи его в процессор
+        # Передаем текстовый виджет в процессор (создаем до текстового виджета)
         self.txt = scrolledtext.ScrolledText(
             self, width=100, height=50, font=self.font_main
         )
-        self.txt.pack(fill=tk.BOTH, anchor="center", padx=10, pady=10, expand=True)
+        self.txt.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Передаем текстовый виджет в процессор
         self.file_processor = FileProcessor(self.txt)
         
         # Кнопки управления
