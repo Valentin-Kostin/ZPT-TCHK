@@ -327,29 +327,7 @@ class Application(tk.Tk):
         frame = ttk.Frame(self, borderwidth=1, padding=[10, 10])
         frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         
-        # Панель с константами (сразу после кнопок, чтобы гарантировать видимость)
-        constants_frame = ttk.LabelFrame(self, text="Константы для исправления параметров SCX", padding=[10, 10])
-        constants_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=5)
-        
-        # Отображение констант
-        const_labels = [
-            ("Макс. ширина панели:", f"{FileProcessor.MAX_PANEL_WIDTH} мм"),
-            ("Целевой диаметр:", FileProcessor.TARGET_DIAMETER),
-            ("Старая ширина паза:", FileProcessor.TARGET_WIDTH_OLD),
-            ("Новая ширина паза:", FileProcessor.TARGET_WIDTH_NEW),
-        ]
-        
-        for row, (label_text, value_text) in enumerate(const_labels):
-            lbl_name = ttk.Label(constants_frame, text=label_text, font=self.font_main)
-            lbl_name.grid(row=row, column=0, sticky=tk.W, padx=10, pady=2)
-            
-            lbl_value = ttk.Label(constants_frame, text=value_text, font=self.font_main)
-            lbl_value.grid(row=row, column=1, sticky=tk.W, padx=10, pady=2)
-        
-        constants_frame.grid_columnconfigure(0, weight=1)
-        constants_frame.grid_columnconfigure(1, weight=1)
-        
-        # Текстовый виджет для вывода информации (занимает оставшееся пространство)
+        # Передаем текстовый виджет в процессор (создаем до текстового виджета)
         self.txt = scrolledtext.ScrolledText(
             self, width=100, height=50, font=self.font_main
         )
