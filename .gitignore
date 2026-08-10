@@ -1,1 +1,18 @@
-Nothing should be ignored based on the provided file changes. The only modified file is 'ZPT-TCHK.py', which is a source code file and should not be added to .gitignore. There are no build artifacts, dependencies, or temporary files in the changes that would require adding ignore rules.
+```
+# Temporary directories
+temp_*/
+
+# Build artifacts and generated files
+*.bmp
+*.epl
+*.xml
+*.tlgx
+
+# Logs and temp files
+*.log
+*.tmp
+
+# OS generated files
+.DS_Store
+Thumbs.db
+```
